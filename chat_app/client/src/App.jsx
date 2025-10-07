@@ -47,6 +47,21 @@ function App() {
       }]);
     };
 
+    const handleMessageDeleted = (data) => {
+      console.log('🗑️ Message deleted:', data);
+      // Remove the deleted message from the UI
+      setMessages(prev => prev.filter(msg => msg.id !== data.deletedMessageId));
+      
+      // Add a system message about deletion
+      setMessages(prev => [...prev, {
+        id: Date.now(),
+        from: 'System',
+        text: '💬 Message auto-deleted after 2 minutes',
+        timestamp: new Date().toLocaleTimeString(),
+        isSystem: true
+      }]);
+    };
+
     const handleConnectError = (error) => {
       console.error('❌ Connection error:', error);
     };
@@ -56,6 +71,7 @@ function App() {
     socket.on('disconnect', handleDisconnect);
     socket.on('user_list_update', handleUserListUpdate);
     socket.on('private_message', handlePrivateMessage);
+    socket.on('message_deleted', handleMessageDeleted);
     socket.on('connect_error', handleConnectError);
 
     // Cleanup function
@@ -65,6 +81,7 @@ function App() {
       socket.off('disconnect', handleDisconnect);
       socket.off('user_list_update', handleUserListUpdate);
       socket.off('private_message', handlePrivateMessage);
+      socket.off('message_deleted', handleMessageDeleted);
       socket.off('connect_error', handleConnectError);
     };
   }, [username]);
@@ -162,6 +179,7 @@ function App() {
         <div className="user-info">
           <span>Welcome, <strong>{username}</strong></span>
           <span className="status-connected">🟢 Online</span>
+          {selectedUser && <span>Chatting with: <strong>{selectedUser}</strong></span>}
         </div>
       </div>
       
@@ -195,26 +213,35 @@ function App() {
             <>
               <div className="chat-with">
                 <h3>Chatting with {selectedUser}</h3>
+                <p className="auto-delete-notice">⏰ Messages auto-delete after 2 minutes</p>
               </div>
               
               <div className="messages-container">
                 {filteredMessages.length === 0 ? (
                   <div className="no-messages">
                     <p>No messages yet. Start the conversation!</p>
+                    <p className="help-text">Messages will automatically disappear after 2 minutes</p>
                   </div>
                 ) : (
                   filteredMessages.map((msg) => (
                     <div 
                       key={msg.id} 
                       className={`message ${
+                        msg.isSystem ? 'system-message' : 
                         msg.isOwn ? 'own-message' : 'other-message'
                       }`}
                     >
-                      <div className="message-header">
-                        <span className="sender">{msg.from}</span>
-                        <span className="timestamp">{msg.timestamp}</span>
-                      </div>
-                      <div className="message-text">{msg.text}</div>
+                      {msg.isSystem ? (
+                        <div className="message-text">{msg.text}</div>
+                      ) : (
+                        <>
+                          <div className="message-header">
+                            <span className="sender">{msg.from}</span>
+                            <span className="timestamp">{msg.timestamp}</span>
+                          </div>
+                          <div className="message-text">{msg.text}</div>
+                        </>
+                      )}
                     </div>
                   ))
                 )}
@@ -246,6 +273,9 @@ function App() {
                   <li>Come back here and select that user</li>
                   <li>Start messaging! 💬</li>
                 </ol>
+                <div className="feature-info">
+                  <p><strong>Auto-delete feature:</strong> All messages automatically disappear after 2 minutes</p>
+                </div>
               </div>
             </div>
           )}
