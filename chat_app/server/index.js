@@ -3,6 +3,8 @@ const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
+const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const server = http.createServer(app);
@@ -15,81 +17,79 @@ const io = socketIo(server, {
 });
 
 app.use(cors());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// Serve uploaded files statically
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Create uploads directory if it doesn't exist
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
 
 // Store connected users
-const users = new Map(); // socket.id -> username
-
-// Store messages with timestamps for auto-deletion
-const messages = new Map(); // messageId -> { messageData, createdAt }
-
-// Auto-deletion time (2 minutes in milliseconds)
+const users = new Map();
+const messages = new Map();
 const MESSAGE_TTL = 2 * 60 * 1000; // 2 minutes
 
-// Function to cleanup old messages
+// Function to detect content type
+const detectContentType = (content) => {
+  // Check if it's a URL
+  const urlRegex = /https?:\/\/[^\s]+/g;
+  const urls = content.match(urlRegex);
+  if (urls) {
+    return 'link';
+  }
+  
+  // Check if it's base64 image
+  if (content.startsWith('data:image/')) {
+    return 'image';
+  }
+  
+  // Check if it's base64 video
+  if (content.startsWith('data:video/')) {
+    return 'video';
+  }
+  
+  return 'text';
+};
+
+// Auto-cleanup function
 const cleanupOldMessages = () => {
   const now = Date.now();
-  let deletedCount = 0;
-  
   for (let [messageId, messageData] of messages) {
     if (now - messageData.createdAt > MESSAGE_TTL) {
       messages.delete(messageId);
-      deletedCount++;
     }
   }
-  
-  if (deletedCount > 0) {
-    console.log(`🧹 Cleaned up ${deletedCount} old messages`);
-  }
 };
-
-// Run cleanup every 30 seconds
 setInterval(cleanupOldMessages, 30000);
-
-// Function to get all usernames
-const getAllUsernames = () => {
-  return Array.from(users.values());
-};
-
-// Function to broadcast user list to all clients
-const broadcastUserList = () => {
-  const userList = getAllUsernames();
-  console.log('📢 Broadcasting user list to all clients:', userList);
-  io.emit('user_list_update', userList);
-};
 
 io.on('connection', (socket) => {
   console.log('✅ New user connected:', socket.id);
 
-  // Handle user joining
   socket.on('user_join', (username) => {
-    console.log('👤 User joining:', username, 'Socket ID:', socket.id);
-    
-    // Store user with socket ID
+    console.log('👤 User joining:', username);
     users.set(socket.id, username);
     
-    console.log('📊 Total users after join:', getAllUsernames());
-    
-    // Broadcast updated user list to ALL connected clients
-    broadcastUserList();
-    
-    console.log(`✅ ${username} successfully joined the chat`);
+    const userList = Array.from(users.values());
+    io.emit('user_list_update', userList);
   });
 
-  // Handle private messages
-  socket.on('private_message', (data) => {
-    console.log('📨 Private message request:', data);
+  // Handle all types of messages (text, images, videos, links)
+  socket.on('send_message', (data) => {
+    console.log('📨 Message received:', data.type);
     
     const fromUsername = users.get(socket.id);
-    if (!fromUsername) {
-      console.log('❌ Sender not found in users map');
-      return;
-    }
+    if (!fromUsername) return;
 
-    // Find recipient's socket ID
+    // Find recipient
     let recipientSocketId = null;
-    for (let [socketId, username] of users) {
+    for (let [id, username] of users) {
       if (username === data.to) {
-        recipientSocketId = socketId;
+        recipientSocketId = id;
         break;
       }
     }
@@ -100,58 +100,39 @@ io.on('connection', (socket) => {
         id: messageId,
         from: fromUsername,
         to: data.to,
-        text: data.text,
+        type: data.type,
+        content: data.content,
         timestamp: new Date().toLocaleTimeString(),
         createdAt: Date.now()
       };
 
-      // Store the message for auto-deletion tracking
-      messages.set(messageId, {
-        data: messageData,
-        createdAt: Date.now()
-      });
+      // Store message
+      messages.set(messageId, { data: messageData, createdAt: Date.now() });
 
       // Send to recipient
-      io.to(recipientSocketId).emit('private_message', messageData);
+      io.to(recipientSocketId).emit('receive_message', messageData);
       
-      // Also send back to sender (for their own chat display)
-      socket.emit('private_message', {
+      // Send to sender
+      socket.emit('receive_message', {
         ...messageData,
         isOwn: true
       });
 
-      console.log('✅ Message delivered from', fromUsername, 'to', data.to);
-      
-      // Schedule auto-deletion for this specific message
+      console.log(`✅ ${data.type} delivered from`, fromUsername, 'to', data.to);
+
+      // Schedule auto-deletion
       setTimeout(() => {
         if (messages.has(messageId)) {
           messages.delete(messageId);
-          console.log(`⏰ Auto-deleted message ${messageId} after 2 minutes`);
-          
-          // Notify both users that the message was deleted
-          const deleteNotification = {
-            id: Date.now(),
-            deletedMessageId: messageId,
-            timestamp: new Date().toLocaleTimeString(),
-            isSystem: true
-          };
-          
-          // Notify sender
-          socket.emit('message_deleted', deleteNotification);
-          
-          // Notify recipient if still connected
-          if (users.has(recipientSocketId)) {
-            io.to(recipientSocketId).emit('message_deleted', deleteNotification);
-          }
+          io.emit('message_deleted', { deletedMessageId: messageId });
         }
       }, MESSAGE_TTL);
 
     } else {
-      console.log('❌ Recipient not found:', data.to);
-      // Notify sender that recipient is not available
-      socket.emit('private_message', {
+      socket.emit('receive_message', {
         from: 'System',
-        text: `User ${data.to} is not available`,
+        type: 'text',
+        content: `User ${data.to} is not available`,
         timestamp: new Date().toLocaleTimeString(),
         id: Date.now(),
         isSystem: true
@@ -159,24 +140,18 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Handle disconnect
   socket.on('disconnect', () => {
-    console.log('❌ User disconnected:', socket.id);
-    
     const username = users.get(socket.id);
     if (username) {
       users.delete(socket.id);
-      console.log(`✅ ${username} removed from users`);
-      console.log('📊 Remaining users:', getAllUsernames());
-      
-      // Broadcast updated user list to all remaining clients
-      broadcastUserList();
+      const userList = Array.from(users.values());
+      io.emit('user_list_update', userList);
     }
   });
 });
 
 const PORT = 3001;
 server.listen(PORT, () => {
-  console.log(`🚀 Chat Server running on http://localhost:${PORT}`);
-  console.log(`⏰ Message auto-deletion enabled: 2 minutes`);
+  console.log(`🚀 Server running on http://localhost:${PORT}`);
+  console.log(`📁 File sharing enabled: images, videos, links`);
 });

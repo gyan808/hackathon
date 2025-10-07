@@ -332,3 +332,119 @@
 .messages-container::-webkit-scrollbar-thumb:hover {
   background: #a8a8a8;
 }
+
+/* Add these styles to your existing App.css */
+
+/* Message form enhancements */
+.message-form {
+  display: flex;
+  gap: 8px;
+  padding: 15px;
+  background: #f8f9fa;
+  border-top: 1px solid #eee;
+  align-items: center;
+}
+
+.attach-button {
+  padding: 12px;
+  background: #6c757d;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.attach-button:hover:not(:disabled) {
+  background: #5a6268;
+}
+
+.attach-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.message-form input[type="text"] {
+  flex: 1;
+  padding: 12px;
+  font-size: 16px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+/* Media message styles */
+.media-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.media-element {
+  max-width: 100%;
+  max-height: 300px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.media-element:hover {
+  transform: scale(1.02);
+}
+
+.file-name {
+  font-size: 12px;
+  color: #666;
+  background: rgba(0, 0, 0, 0.1);
+  padding: 4px 8px;
+  border-radius: 4px;
+  word-break: break-all;
+}
+
+/* Link styles */
+.message-link {
+  color: #007bff;
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.message-link:hover {
+  text-decoration: underline;
+}
+
+.text-content {
+  word-wrap: break-word;
+  line-height: 1.4;
+}
+
+/* Different message types */
+.image-message, .video-message {
+  max-width: 85%;
+}
+
+.link-message {
+  max-width: 80%;
+}
+
+/* Upload indicator */
+.upload-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #e7f3ff;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #0066cc;
+}
+
+/* Responsive media */
+@media (max-width: 768px) {
+  .media-element {
+    max-height: 200px;
+  }
+  
+  .image-message, .video-message {
+    max-width: 95%;
+  }
+}
